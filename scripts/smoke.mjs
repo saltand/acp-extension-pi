@@ -434,6 +434,12 @@ async function start(
       cwd: root,
       env: {
         ...process.env,
+        // Running smoke inside a Lody-driven Pi session inherits LODY_PI_*;
+        // an ambient source/config would silently change what is being tested.
+        LODY_PI_MCP_SOURCE: undefined,
+        LODY_PI_MCP_CONFIG: undefined,
+        LODY_PI_EXTENSIONS: undefined,
+        LODY_PI_WORKSPACE_CONFIG: undefined,
         HOME: root,
         PI_CODING_AGENT_DIR: profile,
         PI_SKIP_VERSION_CHECK: "1",

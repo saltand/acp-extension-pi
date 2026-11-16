@@ -26,6 +26,16 @@ Authenticate/configure models through Pi on the execution machine. ACP
 configuration also exposes model and thinking selection. stdout is ACP;
 stderr contains diagnostics.
 
+The adapter is published as `@saltand/acp-extension-pi`. Pin the version so
+Lody's npx cache recovery can identify the package:
+
+```sh
+npx -y @saltand/acp-extension-pi@0.2.0 --provider <provider> --model <model>
+```
+
+The tarball carries prebuilt Windows job-object modules for x64 and arm64; on
+other platforms only Node is needed.
+
 `LODY_PI_PATH` can select another Pi executable. It must support the Pi 1.4
 RPC contract and explicit `builtin:codemode` loading, like the bundled runtime.
 
