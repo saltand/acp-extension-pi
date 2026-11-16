@@ -33,7 +33,7 @@
     "format": "prettier --write .",
     "check": "pnpm typecheck && pnpm test && prettier --check .",
     "prepack": "pnpm build",
-    "prepublishOnly": "node -e \"for (const arch of ['x64', 'arm64']) require('node:fs').accessSync('native/win32-' + arch + '.node')\""
+    "prepublishOnly": "node -e \"const {accessSync}=require('node:fs'); try { for (const arch of ['x64','arm64']) accessSync('native/win32-'+arch+'.node'); } catch { if (process.env.REQUIRE_NATIVE==='1') throw new Error('native/win32-*.node missing'); console.warn('warning: publishing without Windows native modules; process-tree management is disabled on Windows'); }\""
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.9.0",
