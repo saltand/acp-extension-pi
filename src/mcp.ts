@@ -91,17 +91,44 @@ export function toPiMcpServers(
   }));
 }
 
+/** Selects which MCP servers a session uses: `acp` (default) or `pi`. */
+export const MCP_SOURCE_ENV = "LODY_PI_MCP_SOURCE";
+/** Lody's built-in MCP server. Workspace servers cannot take this name. */
+export const LODY_MCP_SERVER = "lody";
+
+export function parseMcpSource(value: string | undefined): {
+  source: "acp" | "pi";
+  error?: string;
+} {
+  const source = value?.trim().toLowerCase();
+  if (!source || source === "acp") return { source: "acp" };
+  if (source === "pi") return { source: "pi" };
+  return {
+    source: "acp",
+    error: `${MCP_SOURCE_ENV} must be "acp" or "pi"; using "acp"`,
+  };
+}
+
 /**
- * Loaded in Pi: Pi's own MCP extension connects the ACP-selected servers. It reads no
- * mcp.json, so the session uses only the servers Lody selected.
+ * Loaded in Pi: Pi's own MCP extension connects the servers. By default these are
+ * only the ACP-selected servers and no mcp.json is read. With `LODY_PI_MCP_SOURCE=pi`
+ * the workspace servers are dropped: only Lody's built-in server is registered and
+ * Pi reads its own mcp.json (agent directory, plus the project when trusted).
  */
 export function registerMcp(pi: ExtensionAPI): void {
   const configPath = process.env[MCP_CONFIG_ENV];
   if (!configPath) throw new Error("Missing Lody Pi runtime configuration");
-  const servers = JSON.parse(
+  const selected = JSON.parse(
     readFileSync(configPath, "utf8"),
   ) as SelectedServer[];
-  const errors: string[] = [];
+  const { source, error: sourceError } = parseMcpSource(
+    process.env[MCP_SOURCE_ENV],
+  );
+  const fromPi = source === "pi";
+  const servers = fromPi
+    ? selected.filter((server) => server.name === LODY_MCP_SERVER)
+    : selected;
+  const errors: string[] = sourceError ? [sourceError] : [];
   for (const { name, config } of toPiMcpServers(servers)) {
     try {
       pi.registerMcpServer(name, config);
@@ -112,9 +139,30 @@ export function registerMcp(pi: ExtensionAPI): void {
   }
   createToolSearchExtension()(pi);
   createMcpExtension({
-    loadConfig: () => ({ servers: [], errors, autoEnableCodemode: false }),
+    // Without a loader Pi reads its own mcp.json, and reports its errors itself.
+    ...(fromPi
+      ? {}
+      : {
+          loadConfig: () => ({
+            servers: [],
+            errors,
+            autoEnableCodemode: false,
+          }),
+        }),
     logPath: join(dirname(configPath), "mcp.log"),
     // RPC mode has no browser hand-off; servers that need OAuth report it instead.
     openUrl: () => {},
   })(pi);
+  if (!fromPi) return;
+  // The user chose these servers in Lody; say that this source does not use them.
+  const ignored = selected.length - servers.length;
+  const notices = [...errors];
+  if (ignored > 0)
+    notices.push(
+      `${MCP_SOURCE_ENV}=pi: ignoring ${ignored} Lody workspace MCP server${ignored === 1 ? "" : "s"}`,
+    );
+  if (notices.length > 0)
+    pi.on("session_start", (_event, ctx) => {
+      ctx.ui.notify(notices.join("\n"), "warning");
+    });
 }

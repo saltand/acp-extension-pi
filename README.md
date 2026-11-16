@@ -127,6 +127,15 @@ process environment, as in native Pi. Pi converts results (text, images, resourc
 links, embedded resources, structured content), truncates oversized output to a
 temporary file and applies per-request timeouts.
 
+Set `LODY_PI_MCP_SOURCE=pi` (for example in the provider's environment variables)
+to use Pi's own MCP configuration instead: only Lody's built-in `lody` server is kept
+from the ACP selection, the workspace servers Lody selected are ignored with a notice,
+and Pi reads `mcp.json` from its agent directory (`PI_CODING_AGENT_DIR`, default
+`~/.pi/agent`) and from a trusted project. Those servers use the `exposure` written in
+`mcp.json` (Pi's default is `codemode`; use `"deferred"` for `tool_search`), and OAuth
+credentials from `pi mcp login` in `mcp-auth.json` apply. The default is `acp`; any other
+value is reported and treated as `acp`.
+
 Servers connect in the background. A server that fails to start or needs an OAuth
 sign-in is reported as one Lody notice; the session still starts and other servers
 remain usable. `/mcp` prints connection status and `/mcp reconnect [server]`

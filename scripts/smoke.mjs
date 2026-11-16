@@ -163,6 +163,10 @@ const server = createServer(async (request, response) => {
       tool = ["mcp__fixture__echo", { value: "native-mcp" }];
     if (content.includes("MCP_LITERAL"))
       tool = ["mcp__fixture__echo", { value: "literal" }];
+    if (content.includes("PI_SOURCE_AMBIENT"))
+      tool = ["mcp__piambient__echo", { value: "pi-source" }];
+    if (content.includes("PI_SOURCE_LODY"))
+      tool = ["mcp__lody__echo", { value: "builtin" }];
     if (content.includes("MCP_ERROR")) tool = ["mcp__fixture__error", {}];
     if (content.includes("MCP_IMAGE")) tool = ["mcp__fixture__image", {}];
     if (content.includes("MCP_RESOURCE"))
@@ -410,6 +414,7 @@ async function start(
   subagentEvents = false,
   activation = {},
   extraMcpServers = [],
+  extraEnv = {},
 ) {
   const runEvents = [];
   const usages = [];
@@ -432,6 +437,7 @@ async function start(
         HOME: root,
         PI_CODING_AGENT_DIR: profile,
         PI_SKIP_VERSION_CHECK: "1",
+        ...extraEnv,
       },
       stdio: ["pipe", "pipe", "pipe"],
     },
@@ -1069,9 +1075,76 @@ async function exerciseMcp() {
     unlink(join(profile, "mcp.json")),
     unlink(join(root, ".pi", "mcp.json")),
   ]);
+  await exercisePiMcpSource();
   console.log(
-    `MCP smoke passed (${codemodeOnly ? "codemode only" : "ordinary tools"}): tool_search loading, verbatim env, ambient mcp.json exclusion, failing-server notice, /mcp status, override prompt section and resume`,
+    `MCP smoke passed (${codemodeOnly ? "codemode only" : "ordinary tools"}): tool_search loading, verbatim env, ambient mcp.json exclusion, failing-server notice, /mcp status, override prompt section, resume and the pi MCP source`,
   );
+}
+
+// LODY_PI_MCP_SOURCE=pi: Lody's built-in server plus Pi's own mcp.json, no workspace servers.
+async function exercisePiMcpSource() {
+  const fixture = fileURLToPath(
+    new URL("../test/fixtures/mcp.mjs", import.meta.url),
+  );
+  await writeFile(
+    join(profile, "mcp.json"),
+    JSON.stringify({
+      mcpServers: {
+        piambient: {
+          command: process.execPath,
+          args: [fixture],
+          env: { MCP_FIXTURE_TAG: "pi" },
+          exposure: "deferred",
+        },
+      },
+    }),
+  );
+  const beforeStart = updates.length;
+  const session = await start(
+    undefined,
+    [],
+    "localtest",
+    "resumeSession",
+    false,
+    {},
+    [
+      {
+        name: "lody",
+        command: process.execPath,
+        args: [fixture],
+        env: [{ name: "MCP_FIXTURE_TAG", value: "lody" }],
+      },
+    ],
+    { LODY_PI_MCP_SOURCE: "pi" },
+  );
+  const offset = bodies.length;
+  await session.prompt("PI_SOURCE_AMBIENT");
+  await session.prompt("PI_SOURCE_LODY");
+  const requests = bodies.slice(offset);
+  const toolResults = JSON.stringify(requests.flatMap((body) => body.messages));
+  assert.ok(toolResults.includes("MCP:pi:pi-source"), "mcp.json server works");
+  assert.ok(toolResults.includes("MCP:lody:builtin"), "built-in server works");
+  assert.ok(
+    requests.every(
+      (body) =>
+        !(body.tools ?? []).some((tool) =>
+          tool.function.name.startsWith("mcp__fixture"),
+        ) && !JSON.stringify(body.messages).includes("mcp__fixture ("),
+    ),
+    "workspace servers are not used",
+  );
+  assert.ok(
+    updates
+      .slice(beforeStart)
+      .some((update) =>
+        (update._meta?.lody?.notice?.message ?? "").includes(
+          "ignoring 1 Lody workspace MCP server",
+        ),
+      ),
+    "ignored workspace servers are reported",
+  );
+  await session.close();
+  await unlink(join(profile, "mcp.json"));
 }
 
 async function exercise(mode) {

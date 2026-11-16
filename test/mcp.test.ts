@@ -10,7 +10,9 @@ import { MCP_SERVERS_SECTION as PI_MCP_SERVERS_SECTION } from "../node_modules/@
 import {
   MCP_CONFIG_ENV,
   MCP_SERVERS_SECTION,
+  MCP_SOURCE_ENV,
   literalConfigValue,
+  parseMcpSource,
   registerMcp,
   toPiMcpServers,
 } from "../src/mcp.js";
@@ -117,14 +119,19 @@ describe("ACP MCP servers as Pi registrations", () => {
 describe("Pi MCP extension wiring", () => {
   let directory: string | undefined;
   const original = process.env[MCP_CONFIG_ENV];
+  const originalSource = process.env[MCP_SOURCE_ENV];
   afterEach(() => {
     if (original === undefined) delete process.env[MCP_CONFIG_ENV];
     else process.env[MCP_CONFIG_ENV] = original;
+    if (originalSource === undefined) delete process.env[MCP_SOURCE_ENV];
+    else process.env[MCP_SOURCE_ENV] = originalSource;
     if (directory) rmSync(directory, { recursive: true, force: true });
     directory = undefined;
   });
 
-  function load(servers: unknown[]) {
+  function load(servers: unknown[], source?: string) {
+    if (source === undefined) delete process.env[MCP_SOURCE_ENV];
+    else process.env[MCP_SOURCE_ENV] = source;
     directory = mkdtempSync(join(tmpdir(), "pi-mcp-test-"));
     const config = join(directory, "servers.json");
     writeFileSync(config, JSON.stringify(servers));
@@ -182,5 +189,58 @@ describe("Pi MCP extension wiring", () => {
     expect(notices).toHaveLength(1);
     expect(notices[0]).toContain('server "remote": url must be');
     expect(notices[0]).not.toContain("secret");
+  });
+  const notify = (handlers: Map<string, Function>) => {
+    const notices: string[] = [];
+    // The extension's own startup handler is registered last.
+    handlers.get("session_start")!(
+      { type: "session_start", reason: "startup" },
+      {
+        cwd: "/work",
+        ui: { notify: (message: string) => notices.push(message) },
+      },
+    );
+    return notices;
+  };
+
+  it("keeps only Lody's built-in server when the source is pi", () => {
+    const { registered, handlers } = load(
+      [stdio("lody"), stdio("fixture"), stdio("other")],
+      "pi",
+    );
+    expect(registered.map(({ name }) => name)).toEqual(["lody"]);
+    expect(notify(handlers)).toEqual([
+      `${MCP_SOURCE_ENV}=pi: ignoring 2 Lody workspace MCP servers`,
+    ]);
+  });
+
+  it("keeps the ACP selection on an unknown source", () => {
+    const { registered } = load([stdio("fixture")], "bogus");
+    expect(registered.map(({ name }) => name)).toEqual(["fixture"]);
+  });
+
+  it("reports an unknown source", () => {
+    const { handlers } = load([], "bogus");
+    expect(notify(handlers)).toEqual([
+      expect.stringContaining(`${MCP_SOURCE_ENV} must be "acp" or "pi"`),
+    ]);
+  });
+});
+
+describe("MCP source selection", () => {
+  it.each([
+    [undefined, "acp"],
+    ["", "acp"],
+    ["acp", "acp"],
+    [" PI ", "pi"],
+    ["pi", "pi"],
+  ])("reads %j as %s", (value, source) => {
+    expect(parseMcpSource(value)).toEqual({ source });
+  });
+
+  it("rejects other values without enabling pi", () => {
+    const { source, error } = parseMcpSource("all");
+    expect(source).toBe("acp");
+    expect(error).toContain(MCP_SOURCE_ENV);
   });
 });
