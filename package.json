@@ -24,6 +24,9 @@
     "node": ">=22.19.0"
   },
   "packageManager": "pnpm@10.20.0",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build:native": "node scripts/build-native.mjs",
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.json",
